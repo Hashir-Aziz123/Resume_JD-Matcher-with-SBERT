@@ -126,13 +126,17 @@ class ResumeMatcher:
 
         base_final_score = (normalized_semantic * 0.7) + (hard_skill_score * 0.3)
 
-        # 9. Advanced Statistical Density Guard (Regex + Sqrt)
+        # 9. Advanced Statistical Density & Coherence Guard
         safe_words = max(word_count, 1)
         matched_count = len(matched_skills)
         density = matched_count / math.sqrt(safe_words)
+        coherence_gap = sim_full - sim_context
         
         penalty_multiplier = 1.0
-        if density > 1.5:  
+        
+        # The Guillotine: If the text flow is unnatural (negative coherence) OR keyword density is absurdly high
+        if coherence_gap < 0 or density > 1.5:  
+            logging.warning(f"ATS Gamer Detected. Coherence Gap: {coherence_gap:.3f}, Density: {density:.2f}. Tanking score.")
             penalty_multiplier = 0.50
         elif density > 1.2: 
             penalty_multiplier = 0.85
@@ -142,34 +146,39 @@ class ResumeMatcher:
         return {
             "overall_match_percentage": round(final_score, 2),
             "semantic_confidence": round(blended_semantic, 4), 
-            "coherence_gap": round(sim_full - sim_context, 4),
+            "coherence_gap": round(coherence_gap, 4),
             "density_penalty_applied": penalty_multiplier < 1.0,
             "skill_gap_report": gap_report,
             "dealbreakers": self.extractor.check_dealbreakers(resume_text, jd_text)
         }
 
 if __name__ == "__main__":
-    # Test Harness to verify the cache and short document guard
+    # Test Harness to verify the cache, short document guard, and coherence penalty
     matcher = ResumeMatcher()
     
     print("\n" + "="*60)
     print("🔥 PRODUCTION BACKEND TEST SUITE 🔥")
     print("="*60)
 
-    sample_jd = "Looking for a Senior Python Developer with AWS and Docker experience to build backend services."
+    sample_jd = """
+    We are looking for a Software Engineer specializing in the Web + ML pipeline.
+    The ideal candidate will have strong proficiency in JavaScript, Python, and C++. 
+    You will be responsible for building highly interactive 3D frontend dashboards using vanilla JavaScript and Three.js.
+    Experience deploying predictive machine learning models via Streamlit is highly preferred. 
+    Our teams exclusively utilize pnpm for package management.
+    """
     
     # Resume 1: Too short (will trigger the 50-word guard)
-    sample_resume_short = "I am a Python Developer with AWS experience. Hire me."
+    sample_resume_short = "I am a JavaScript Developer with Streamlit experience. Hire me."
     
-    # Resume 2: Normal length, good match
+    # Resume 2: Normal length, highly aligned match
     sample_resume_long = """
-    I am an experienced Python Developer with over 5 years in the tech industry. 
-    Throughout my career, I have specialized in building robust backend services, 
-    designing scalable APIs, and managing cloud infrastructure. My primary cloud 
-    provider is AWS, where I have deployed numerous serverless functions and EC2 
-    instances. I also have deep expertise in containerizing applications using 
-    Docker, orchestrating CI/CD pipelines, and ensuring high availability. I love 
-    working on complex backend challenges and collaborating with cross-functional teams.
+    Computer Science student and developer focused on the intersection of web and ML. 
+    My primary language competencies are JavaScript first, Python second, and C++ third.
+    I engineered a Temporal Illusions Dashboard and deployed a predictive Heat Risk model using Streamlit, achieving high accuracy.
+    I also developed a custom 3D interactive portfolio heavily utilizing vanilla JavaScript and Three.js. 
+    I strictly use pnpm over npm as it is technologically superior for managing fast, deterministic builds.
+    I am passionate about creating somber, moody aesthetics in generated media and utilizing strategy game concepts in algorithmic development.
     """
 
     print("\n--- Request 1: The Haiku Resume ---")
@@ -179,7 +188,10 @@ if __name__ == "__main__":
     print("\n--- Request 2: The Real Candidate (Cache Miss expected) ---")
     res_long = matcher.calculate_match(sample_resume_long, sample_jd)
     print(f"Match Score: {res_long.get('overall_match_percentage')}%")
+    print(f"Semantic Confidence: {res_long.get('semantic_confidence')}")
+    print(f"Coherence Gap: {res_long.get('coherence_gap')}")
+    print(f"Density Penalty: {res_long.get('density_penalty_applied')}")
     
     print("\n--- Request 3: Another Real Candidate (Cache HIT expected) ---")
-    res_cache = matcher.calculate_match(sample_resume_long + " Extra words.", sample_jd)
+    res_cache = matcher.calculate_match(sample_resume_long + " I also know a bit about REST APIs.", sample_jd)
     print(f"Match Score: {res_cache.get('overall_match_percentage')}%")
